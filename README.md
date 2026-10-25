@@ -9,5 +9,4 @@ OS practical on process synchronization.
 - Buffer empty: delivery partner waits
 
 ## Run
-- Python: python food_delivery.py
 - Visual demo: open food_delivery.html in a browser
