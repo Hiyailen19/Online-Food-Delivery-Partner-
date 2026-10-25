@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Food Delivery Sync - Producer Consumer Simulator</title>
+<style>
+:root{--bg:#eef1f4;--card:#fff;--ink:#1b2430;--mut:#5d6b7c;--line:#d5dce4;--box:#f2b01e;--ok:#0e8f7e;--bad:#d6453d;--wait:#2f6fdb;--slot:#e3e8ee}
+@media(prefers-color-scheme:dark){:root{--bg:#12161b;--card:#1b2129;--ink:#e8edf2;--mut:#93a1b2;--line:#2c3541;--slot:#252d38}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,sans-serif;padding:18px}
+h1{font-size:1.4rem;margin:0 0 2px}
+.sub{margin:0 0 14px;color:var(--mut)}
+.layout{display:grid;grid-template-columns:270px 1fr;gap:14px;align-items:start;max-width:1200px;margin:0 auto}
+@media(max-width:860px){.layout{grid-template-columns:1fr}}
+.top{max-width:1200px;margin:0 auto}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+h2{font-size:1rem;margin:0 0 10px}
+h3{font-size:.9rem;margin:0 0 8px;color:var(--mut);font-weight:600}
+label{display:block;font-size:.85rem;color:var(--mut);margin-bottom:10px}
+label b{color:var(--ink)}
+input[type=range]{width:100%}
+.sw{display:flex;gap:8px;align-items:center;color:var(--ink)}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+button{font:inherit;padding:8px 16px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+button.go{background:var(--ok);border-color:var(--ok);color:#fff}
+button:disabled{opacity:.5;cursor:not-allowed}
+button:focus-visible,input:focus-visible{outline:3px solid var(--wait);outline-offset:2px}
+#status{display:block;margin-top:8px;font-size:.85rem;color:var(--mut);min-height:1.3em}
+.stat{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line)}
+.stat:last-child{border:0}
+.stat strong{font-size:1.05rem}
+/* live simulation */
+.stage{position:relative;display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:12px}
+@media(max-width:620px){.stage{grid-template-columns:1fr}}
+.zone{background:var(--bg);border-radius:8px;padding:10px;min-height:190px}
+.actor{text-align:center;padding:14px 6px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.ico{font-size:2.2rem;line-height:1.2}
+.msg{min-height:1.4em;font-size:.85rem;font-weight:600;color:var(--bad);margin-top:6px}
+.shelf{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;min-height:60px}
+.slot{width:50px;height:50px;border-radius:6px;background:var(--slot);border:2px dashed var(--line);display:grid;place-items:center;font-size:1.4rem}
+.slot.full{background:var(--box);border:2px solid #b98107}
+.cnt{text-align:center;margin-top:10px;color:var(--mut)}
+.who{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:7px 10px;border:1px solid var(--line);border-radius:6px;margin-bottom:8px;background:var(--card)}
+.tag{font-size:.78rem;padding:2px 10px;border-radius:99px;color:#fff;background:var(--mut);white-space:nowrap}
+.tag.waiting{background:var(--wait)}.tag.delivering{background:var(--ok)}.tag.placing{background:var(--box);color:#1b2430}
+.fly{position:absolute;font-size:1.7rem;transition:left .6s ease,top .6s ease;pointer-events:none;z-index:5}
+.shake{animation:shake .4s}
+@keyframes shake{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+@media(prefers-reduced-motion:reduce){.fly{transition:none}.shake{animation:none}}
+#alert{display:none;margin-top:10px;padding:8px 12px;border-radius:6px;font-weight:600;background:var(--bad);color:#fff}
+/* race demo */
+.rg{display:grid;grid-template-columns:1fr 1.2fr 1fr;gap:12px}
+@media(max-width:620px){.rg{grid-template-columns:1fr}}
+.rb{border:2px solid var(--line);border-radius:8px;padding:10px;text-align:center;background:var(--bg);transition:border-color .3s}
+.rb span{display:block;font-size:.88rem;color:var(--mut)}
+.rb i{font-style:normal;font-weight:700;color:var(--ink)}
+.rb.on{border-color:var(--wait)}
+.big{font-size:2.6rem;font-weight:700;line-height:1.2}
+.big.bad{color:var(--bad)}.big.good{color:var(--ok)}
+#rCap{margin:12px 0 0;padding:8px 12px;border-left:4px solid var(--wait);background:var(--bg);min-height:2.8em}
+#rCap.bad{border-color:var(--bad)}#rCap.good{border-color:var(--ok)}
+#log{max-height:220px;overflow:auto;margin:0;padding:0;list-style:none;font:13px/1.6 Consolas,monospace}
+#log li{padding:2px 6px;border-left:4px solid var(--line);margin-bottom:2px}
+#log .ok{border-color:var(--ok)}#log .cancel{border-color:var(--bad)}#log .wait{border-color:var(--wait)}#log .take{border-color:var(--box)}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Online Food Delivery Partner</h1>
+  <p class="sub">Producer-consumer problem: the restaurant adds ready parcels to a limited shelf and delivery partners pick them up.</p>
+</div>
+<div class="layout">
+  <aside>
+    <section class="panel">
+      <h2>Settings</h2>
+      <label>Shelf capacity: <b id="vCap">3</b><input type="range" id="cap" min="1" max="8" value="3"></label>
+      <label>Delivery partners: <b id="vPar">2</b><input type="range" id="par" min="1" max="4" value="2"></label>
+      <label>Total orders: <b id="vOrd">15</b><input type="range" id="ord" min="5" max="30" value="15"></label>
+      <label>Restaurant makes a parcel every: <b id="vGap">400</b> ms<input type="range" id="gap" min="100" max="1500" step="50" value="400"></label>
+      <label>Delivery takes: <b id="vDel">1500</b> ms<input type="range" id="del" min="300" max="3000" step="100" value="1500"></label>
+      <label class="sw"><input type="checkbox" id="sync" checked> Synchronization ON (lock)</label>
+      <div class="btns">
+        <button class="go" id="start">Start simulation</button>
+        <button id="reset">Reset</button>
+      </div>
+      <span id="status" aria-live="polite"></span>
+    </section>
+    <section class="panel">
+      <h2>Counters</h2>
+      <div class="stat"><span>Orders accepted</span><strong id="sPlaced">0</strong></div>
+      <div class="stat"><span>Orders cancelled</span><strong id="sCancel">0</strong></div>
+      <div class="stat"><span>Parcels delivered</span><strong id="sDel">0</strong></div>
+      <div class="stat"><span>Count shown on website</span><strong id="sShown">0</strong></div>
+      <div class="stat"><span>Actual ready parcels</span><strong id="sTrue">0</strong></div>
+    </section>
+  </aside>
+
+  <main>
+    <section class="panel">
+      <h2>Live simulation</h2>
+      <div class="stage" id="stage">
+        <div class="zone">
+          <h3>Restaurant (producer)</h3>
+          <div class="actor" id="rBox">
+            <div class="ico">&#128104;&#8205;&#127859;</div>
+            <span class="tag" id="rTag">idle</span>
+            <div class="msg" id="rMsg"></div>
+          </div>
+        </div>
+        <div class="zone">
+          <h3>Shelf: ready parcels (shared buffer)</h3>
+          <div class="shelf" id="shelf"></div>
+          <div class="cnt">Count shown: <b id="cntShown">0</b> of <b id="cntCap">3</b></div>
+        </div>
+        <div class="zone">
+          <h3>Delivery partners (consumers)</h3>
+          <div id="partners"></div>
+        </div>
+      </div>
+      <div id="alert" role="alert"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Race condition demo (3 parcels ready)</h2>
+      <div class="btns" style="margin-bottom:12px"><button id="raceBtn">Run race condition demo</button></div>
+      <div class="rg">
+        <div class="rb" id="rbP"><div class="ico">&#128104;&#8205;&#127859;</div><b>Restaurant</b>
+          <span>reads: <i id="rP">-</i></span><span>writes: <i id="rPw">-</i></span></div>
+        <div class="rb" id="rbS"><b>Shared count (website)</b><div class="big" id="rS">3</div>
+          <span>Actual parcels: <i id="rA">3</i></span><span>Lock: <i id="rL">free</i></span></div>
+        <div class="rb" id="rbC"><div class="ico">&#128757;</div><b>Delivery partner</b>
+          <span>reads: <i id="rC">-</i></span><span>writes: <i id="rCw">-</i></span></div>
+      </div>
+      <div id="rCap">Press the button to see how a lost update happens, then how a lock fixes it.</div>
+    </section>
+
+    <section class="panel">
+      <h2>Event log</h2>
+      <ul id="log"></ul>
+    </section>
+  </main>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const RACE_DELAY = 150; // gap between read and write when sync is OFF
+let RUN = 0, S = null, CFG = null;
+
+function fresh() {
+  S = { count: 0, actual: 0, placed: 0, cancelled: 0, delivered: 0,
+        closed: false, waiters: [], partners: [], rState: "idle" };
+}
+const waitSignal = () => new Promise(r => S.waiters.push(r));
+function notifyAll() { const w = S.waiters; S.waiters = []; w.forEach(r => r()); }
+
+function log(msg, type) {
+  const li = document.createElement("li");
+  li.className = type;
+  li.textContent = msg;
+  $("log").prepend(li);
+  while ($("log").children.length > 80) $("log").lastChild.remove();
+}
+
+/* animated parcel moving between two elements inside the stage */
+function fly(from, to, emoji) {
+  if (!from || !to) return;
+  const st = $("stage").getBoundingClientRect(), a = from.getBoundingClientRect(), b = to.getBoundingClientRect();
+  const el = document.createElement("div");
+  el.className = "fly";
+  el.textContent = emoji;
+  el.style.left = (a.left + a.width / 2 - st.left - 14) + "px";
+  el.style.top = (a.top + a.height / 2 - st.top - 14) + "px";
+  $("stage").appendChild(el);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    el.style.left = (b.left + b.width / 2 - st.left - 14) + "px";
+    el.style.top = (b.top + b.height / 2 - st.top - 14) + "px";
+  }));
+  setTimeout(() => el.remove(), 700);
+}
+
+function say(text) {
+  $("rMsg").textContent = text;
+  $("rBox").classList.remove("shake");
+  void $("rBox").offsetWidth;
+  $("rBox").classList.add("shake");
+  setTimeout(() => { $("rMsg").textContent = ""; }, 1200);
+}
+
+function render() {
+  const shelf = $("shelf");
+  shelf.innerHTML = "";
+  const filled = Math.max(0, Math.min(S.count, CFG.cap));
+  for (let i = 0; i < CFG.cap; i++) {
+    const d = document.createElement("div");
+    d.className = "slot" + (i < filled ? " full" : "");
+    d.textContent = i < filled ? "\u{1F4E6}" : "";
+    shelf.appendChild(d);
+  }
+  $("cntShown").textContent = S.count;
+  $("cntCap").textContent = CFG.cap;
+  $("rTag").textContent = S.rState;
+  $("rTag").className = "tag " + (S.rState === "placing" ? "placing" : "");
+  $("partners").innerHTML = S.partners.map((p, i) =>
+    `<div class="who" id="pc${i}"><span>${p.name} (${p.done})</span><span class="tag ${p.state}">${p.state}</span></div>`).join("");
+  $("sPlaced").textContent = S.placed;
+  $("sCancel").textContent = S.cancelled;
+  $("sDel").textContent = S.delivered;
+  $("sShown").textContent = S.count;
+  $("sTrue").textContent = S.actual;
+  const bad = S.count !== S.actual;
+  $("alert").style.display = bad ? "block" : "none";
+  $("alert").textContent = bad ? "Race condition: a lost update made the shown count differ from the actual count." : "";
+}
+
+async function restaurant(run) {
+  for (let i = 1; i <= CFG.orders; i++) {
+    if (run !== RUN) return;
+    S.rState = "placing";
+    let accepted = false;
+    if (CFG.sync) {
+      if (S.count >= CFG.cap) { S.cancelled++; log(`Order #${i} CANCELLED (shelf full)`, "cancel"); render(); say("Order cancelled"); }
+      else { S.count++; S.actual++; S.placed++; accepted = true; log(`Order #${i} ready. Ready parcels = ${S.count}`, "ok"); notifyAll(); }
+    } else {
+      const c = S.count;                         // read
+      if (c >= CFG.cap) { S.cancelled++; log(`Order #${i} CANCELLED (shelf full)`, "cancel"); render(); say("Order cancelled"); }
+      else {
+        await sleep(RACE_DELAY);                 // another thread may change count here
+        if (run !== RUN) return;
+        S.count = c + 1; S.actual++; S.placed++; accepted = true; // write with the stale value
+        log(`Order #${i} ready. Wrote count = ${S.count}`, "ok"); notifyAll();
+      }
+    }
+    if (accepted) { render(); fly($("rBox"), $("shelf"), "\u{1F4E6}"); }
+    await sleep(CFG.gap);
+  }
+  S.closed = true; S.rState = "idle";
+  notifyAll(); render();
+}
+
+async function partner(run, p, idx) {
+  while (run === RUN) {
+    while (S.count <= 0) {
+      if (S.closed) { p.state = "offline"; log(`${p.name}: no more orders, going OFFLINE`, "wait"); render(); finish(run); return; }
+      p.state = "waiting"; render();
+      await waitSignal();
+      if (run !== RUN) return;
+    }
+    if (CFG.sync) { S.count--; S.actual--; }
+    else {
+      const c = S.count;                         // read
+      await sleep(RACE_DELAY);
+      if (run !== RUN) return;
+      S.count = c - 1; S.actual--;               // write with the stale value
+    }
+    S.delivered++; p.done++; p.state = "delivering";
+    log(`${p.name}: picked a parcel. Count = ${S.count}`, "take");
+    render();
+    fly($("shelf"), $("pc" + idx), "\u{1F4E6}");
+    await sleep(CFG.del);
+  }
+}
+
+function finish(run) {
+  if (run !== RUN || !S.partners.every(p => p.state === "offline")) return;
+  $("status").textContent = "Finished.";
+  $("start").disabled = false;
+  setCfgLock(false);
+}
+
+function setCfgLock(lock) {
+  ["cap", "par", "ord", "gap", "del", "sync"].forEach(id => $(id).disabled = lock);
+}
+
+function readCfg() {
+  CFG = { cap: +$("cap").value, par: +$("par").value, orders: +$("ord").value,
+          gap: +$("gap").value, del: +$("del").value, sync: $("sync").checked };
+}
+
+function reset() {
+  RUN++;
+  readCfg(); fresh();
+  S.partners = Array.from({ length: CFG.par }, (_, i) => ({ name: `Partner-${i + 1}`, state: "idle", done: 0 }));
+  $("log").innerHTML = "";
+  $("status").textContent = "";
+  $("start").disabled = false;
+  setCfgLock(false);
+  render();
+}
+
+function start() {
+  reset();
+  const run = RUN;
+  S.partners.forEach(p => p.state = "waiting");
+  $("start").disabled = true;
+  setCfgLock(true);
+  $("status").textContent = CFG.sync ? "Running with lock." : "Running WITHOUT lock. Watch the counters.";
+  render();
+  restaurant(run);
+  S.partners.forEach((p, i) => partner(run, p, i));
+}
+
+/* ---------- race condition demo (step by step) ---------- */
+const BASE = { p: "-", pw: "-", c: "-", cw: "-", s: 3, a: 3, lock: "no lock" };
+const R = Object.assign({}, BASE);
+const STEPS = [
+  ["WITHOUT A LOCK: the shared count is 3.", r => Object.assign(r, BASE), "rbS", ""],
+  ["Restaurant reads count = 3 (it wants to add 1).", r => { r.p = 3; }, "rbP", ""],
+  ["Delivery partner also reads count = 3 (it wants to take 1).", r => { r.c = 3; }, "rbC", ""],
+  ["Restaurant writes 3 + 1 = 4.", r => { r.pw = 4; r.s = 4; r.a = 4; }, "rbP", ""],
+  ["Partner writes 3 - 1 = 2 and overwrites the 4. The website shows 2 but 3 parcels are really ready: RACE CONDITION.", r => { r.cw = 2; r.s = 2; r.a = 3; }, "rbC", "bad"],
+  ["WITH A LOCK: the shared count is 3.", r => Object.assign(r, BASE, { lock: "free" }), "rbS", ""],
+  ["Restaurant takes the lock and reads 3.", r => { r.lock = "held by restaurant"; r.p = 3; }, "rbP", ""],
+  ["Partner wants to read but has to WAIT for the lock.", r => { r.c = "waiting"; }, "rbC", ""],
+  ["Restaurant writes 4 and releases the lock.", r => { r.pw = 4; r.s = 4; r.a = 4; r.lock = "free"; }, "rbP", ""],
+  ["Partner gets the lock, reads 4 and writes 3. The website shows 3 and 3 are really ready: correct.", r => { r.lock = "held by partner"; r.c = 4; r.cw = 3; r.s = 3; r.a = 3; }, "rbC", "good"]
+];
+
+function drawRace(active, tone) {
+  $("rP").textContent = R.p; $("rPw").textContent = R.pw;
+  $("rC").textContent = R.c; $("rCw").textContent = R.cw;
+  $("rS").textContent = R.s; $("rA").textContent = R.a; $("rL").textContent = R.lock;
+  $("rS").className = "big " + (R.s !== R.a ? "bad" : tone === "good" ? "good" : "");
+  ["rbP", "rbS", "rbC"].forEach(id => $(id).classList.toggle("on", id === active));
+}
+
+async function raceDemo() {
+  $("raceBtn").disabled = true;
+  for (const [text, fn, active, tone] of STEPS) {
+    fn(R);
+    drawRace(active, tone);
+    $("rCap").textContent = text;
+    $("rCap").className = tone;
+    await sleep(1800);
+  }
+  $("raceBtn").disabled = false;
+}
+
+[["cap", "vCap"], ["par", "vPar"], ["ord", "vOrd"], ["gap", "vGap"], ["del", "vDel"]].forEach(([i, v]) =>
+  $(i).addEventListener("input", () => { $(v).textContent = $(i).value; if (!$("start").disabled) reset(); }));
+$("start").addEventListener("click", start);
+$("reset").addEventListener("click", reset);
+$("raceBtn").addEventListener("click", raceDemo);
+reset();
+drawRace("", "");
+</script>
+</body>
+</html>
